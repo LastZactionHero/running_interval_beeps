@@ -1,17 +1,34 @@
 import csv
 import subprocess
 import os
-import argparse
-from pydub import AudioSegment
+import pydub
 import tempfile
+import argparse
 
 def create_voice_prompt(text, output_file):
-    """Create a voice prompt using macOS's say command"""
+    """Create a voice prompt using macOS say command."""
     subprocess.run(['say', '-v', 'Samantha', '-o', output_file, text])
 
+def create_beep_tone(phase, output_file):
+    """Create a beep tone based on the workout phase."""
+    # Define frequencies for different phases
+    frequencies = {
+        'Warm-up': 440,  # A4 (lower pitch)
+        'Interval': 880,  # A5 (higher pitch for intensity)
+        'Recovery': 587,  # D5 (medium pitch)
+        'Cool-down': 392   # G4 (lower pitch)
+    }
+    
+    # Generate beep using sox
+    frequency = frequencies.get(phase, 440)  # Default to A4 if phase not found
+    subprocess.run([
+        'sox', '-n', output_file,
+        'synth', '0.5', 'sine', str(frequency),
+        'gain', '-3'  # Reduce volume slightly
+    ])
+
 def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Create interval training audio with voice prompts')
+    parser = argparse.ArgumentParser(description='Create interval training audio with voice prompts and beeps.')
     parser.add_argument('--input', '-i', default='interval.csv', help='Input CSV file with interval data')
     parser.add_argument('--output', '-o', default='interval_music.mp3', help='Output audio file')
     parser.add_argument('--music', '-m', default='music.mp3', help='Background music file')
@@ -19,16 +36,12 @@ def main():
     parser.add_argument('--debug', action='store_true', help='Create debug audio without background music')
     args = parser.parse_args()
 
-    # Read the interval CSV file
+    # Read interval data from CSV
     intervals = []
     with open(args.input, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
             intervals.append(row)
-
-    # Calculate total duration and halfway point
-    total_duration = int(intervals[-1]['Cumulative_Time_Seconds'])
-    halfway_point = total_duration // 2
 
     # Create temporary directory for voice prompts
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -39,50 +52,59 @@ def main():
             create_voice_prompt(interval['Effort_Description'], voice_file)
             voice_files.append(voice_file)
 
-        # Create special halfway mark voice prompt
-        halfway_voice_file = os.path.join(temp_dir, 'halfway.aiff')
-        create_voice_prompt("Halfway point, time to turn around", halfway_voice_file)
-        voice_files.append(halfway_voice_file)
+        # Create beep tones for each phase
+        beep_files = []
+        for i, interval in enumerate(intervals, 1):
+            beep_file = os.path.join(temp_dir, f'beep_{i}.aiff')
+            create_beep_tone(interval['Phase'], beep_file)
+            beep_files.append(beep_file)
 
-        # Convert voice prompts to MP3
-        voice_mp3s = []
-        for voice_file in voice_files:
-            mp3_file = voice_file.replace('.aiff', '.mp3')
-            subprocess.run(['ffmpeg', '-i', voice_file, '-acodec', 'libmp3lame', mp3_file])
-            voice_mp3s.append(mp3_file)
+        # Create halfway point voice prompt
+        halfway_file = os.path.join(temp_dir, 'halfway.aiff')
+        create_voice_prompt("Halfway point, time to turn around", halfway_file)
 
-        # Load beep sound
-        beep = AudioSegment.from_mp3(args.beep)
+        # Convert all AIFF files to MP3
+        for file in voice_files + beep_files + [halfway_file]:
+            mp3_file = file.replace('.aiff', '.mp3')
+            subprocess.run(['ffmpeg', '-i', file, mp3_file])
 
-        # Create base audio
+        # Calculate total duration and halfway point
+        total_duration = int(intervals[-1]['Cumulative_Time_Seconds'])
+        halfway_point = total_duration // 2
+
+        # Create base audio (music or silence)
         if args.debug:
-            # Create a silent audio track of appropriate length
-            total_duration_ms = total_duration * 1000  # Convert to milliseconds
-            base_audio = AudioSegment.silent(duration=total_duration_ms)
+            base_audio = pydub.AudioSegment.silent(duration=total_duration * 1000)
         else:
-            # Load the music file
-            base_audio = AudioSegment.from_mp3(args.music)
-        
-        # Overlay beeps and voice prompts
-        current_position = 0  # Start at 0 seconds
-        
-        # Add halfway mark at calculated position
-        halfway_position = halfway_point * 1000
-        halfway_voice = AudioSegment.from_mp3(voice_mp3s[-1])  # Last file is the halfway prompt
-        base_audio = base_audio.overlay(halfway_voice, position=halfway_position)
-        base_audio = base_audio.overlay(beep, position=halfway_position)
+            base_audio = pydub.AudioSegment.from_mp3(args.music)
+            # Loop music if shorter than total duration
+            while len(base_audio) < total_duration * 1000:
+                base_audio += base_audio
 
-        # Add all other intervals
-        for i, (interval, voice_mp3) in enumerate(zip(intervals, voice_mp3s[:-1]), 1):
-            voice = AudioSegment.from_mp3(voice_mp3)
-            base_audio = base_audio.overlay(voice, position=current_position)
+        # Overlay voice prompts and beeps
+        current_position = 0
+        for i, interval in enumerate(intervals):
+            # Add beep
+            beep = pydub.AudioSegment.from_mp3(beep_files[i].replace('.aiff', '.mp3'))
             base_audio = base_audio.overlay(beep, position=current_position)
+
+            # Add voice prompt
+            voice = pydub.AudioSegment.from_mp3(voice_files[i].replace('.aiff', '.mp3'))
+            base_audio = base_audio.overlay(voice, position=current_position)
+
+            # Add halfway point if this is the halfway interval
+            if current_position == halfway_point * 1000:
+                halfway_voice = pydub.AudioSegment.from_mp3(halfway_file.replace('.aiff', '.mp3'))
+                base_audio = base_audio.overlay(halfway_voice, position=current_position)
+                halfway_beep = pydub.AudioSegment.from_mp3(beep_files[i].replace('.aiff', '.mp3'))
+                base_audio = base_audio.overlay(halfway_beep, position=current_position)
+
             # Update position for next interval
             current_position += int(interval['Duration_Seconds']) * 1000
 
-    # Export the final audio
-    base_audio.export(args.output, format="mp3")
-    print(f"Interval audio file created successfully: {args.output}")
+        # Export final audio
+        base_audio.export(args.output, format='mp3')
+        print(f"Interval audio file created successfully: {args.output}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main() 
