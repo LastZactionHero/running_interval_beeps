@@ -10,21 +10,24 @@ def create_voice_prompt(text, output_file):
     subprocess.run(['say', '-v', 'Samantha', '-o', output_file, text])
 
 def create_beep_tone(phase, output_file):
-    """Create a beep tone based on the workout phase."""
-    # Define frequencies for different phases
+    """Create beep tones based on the workout phase."""
+    # Define frequencies and number of beeps for different phases
     frequencies = {
-        'Warm-up': 440,  # A4 (lower pitch)
-        'Interval': 880,  # A5 (higher pitch for intensity)
-        'Recovery': 587,  # D5 (medium pitch)
-        'Cool-down': 392   # G4 (lower pitch)
+        'Warm-up': (440, 1),   # A4 (lower pitch), 1 beep
+        'Interval': (880, 3),   # A5 (higher pitch), 3 beeps
+        'Recovery': (587, 2),   # D5 (medium pitch), 2 beeps
+        'Cool-down': (392, 1)   # G4 (lower pitch), 1 beep
     }
     
-    # Generate beep using sox
-    frequency = frequencies.get(phase, 440)  # Default to A4 if phase not found
+    frequency, num_beeps = frequencies.get(phase, (440, 1))
+    
+    # Create a single beep
     subprocess.run([
         'sox', '-n', output_file,
-        'synth', '0.5', 'sine', str(frequency),
-        'gain', '-3'  # Reduce volume slightly
+        'synth', '0.2', 'sine', str(frequency),  # Shorter beep duration
+        'gain', '-3',  # Reduce volume slightly
+        'repeat', str(num_beeps - 1),  # Repeat for multiple beeps
+        'delay', '0.1'  # Add 0.1s delay between beeps
     ])
 
 def main():
@@ -80,6 +83,8 @@ def main():
             # Loop music if shorter than total duration
             while len(base_audio) < total_duration * 1000:
                 base_audio += base_audio
+            # Reduce music volume to 75%
+            base_audio = base_audio - 4.5  # Approximately 75% volume (-2.5 dB)
 
         # Overlay voice prompts and beeps
         current_position = 0
