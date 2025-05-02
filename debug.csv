@@ -1,0 +1,7 @@
+StepID,Phase,Duration_Seconds,Effort_Description,Cumulative_Time_Seconds,Focus_Notes
+1,Warm-up,20,Brisk Walk,20,"Relax shoulders, head level"
+2,Interval,20,Faster Pace (7/10 Effort),40,"Stay tall, controlled effort"
+3,Recovery,20,Easy Jog/Walk,60,"Catch breath, relax"
+4,Interval,20,Faster Pace (7/10 Effort),80,"Stay tall, controlled effort"
+5,Recovery,20,Easy Jog/Walk,100,"Catch breath, relax"
+6,Cool-down,20,Walk,120,"Allow heart rate to normalize" 
