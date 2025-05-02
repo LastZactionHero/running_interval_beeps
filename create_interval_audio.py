@@ -5,9 +5,17 @@ import pydub
 import tempfile
 import argparse
 
-def create_voice_prompt(text, output_file):
+def create_voice_prompt(text, focus_notes, output_file):
     """Create a voice prompt using macOS say command."""
-    subprocess.run(['say', '-v', 'Samantha', '-o', output_file, text])
+    # Validate required fields
+    if not text or text.strip() == "":
+        raise ValueError("Effort_Description cannot be empty")
+    # Focus notes are optional, so we'll just use the text if focus_notes is empty
+    if not focus_notes or focus_notes.strip() == "":
+        focus_notes = ""
+    
+    full_text = f"{text}. {focus_notes}"
+    subprocess.run(['say', '-v', 'Samantha', '-o', output_file, full_text])
 
 def create_beep_tone(phase, output_file):
     """Create beep tones based on the workout phase."""
@@ -44,6 +52,12 @@ def main():
     with open(args.input, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
+            # Ensure all required fields are present
+            if not all(key in row for key in ['Effort_Description', 'Focus_Notes']):
+                raise ValueError(f"Missing required fields in CSV row: {row}")
+            # Validate that fields are not empty
+            if not row['Effort_Description'] or not row['Focus_Notes']:
+                raise ValueError(f"Empty required fields in CSV row: {row}")
             intervals.append(row)
 
     # Create temporary directory for voice prompts
@@ -52,7 +66,9 @@ def main():
         voice_files = []
         for i, interval in enumerate(intervals, 1):
             voice_file = os.path.join(temp_dir, f'voice_{i}.aiff')
-            create_voice_prompt(interval['Effort_Description'], voice_file)
+            effort_desc = interval['Effort_Description']
+            focus_notes = interval['Focus_Notes']
+            create_voice_prompt(effort_desc, focus_notes, voice_file)
             voice_files.append(voice_file)
 
         # Create beep tones for each phase
@@ -64,7 +80,7 @@ def main():
 
         # Create halfway point voice prompt
         halfway_file = os.path.join(temp_dir, 'halfway.aiff')
-        create_voice_prompt("Halfway point, time to turn around", halfway_file)
+        create_voice_prompt("Halfway point, time to turn around", "", halfway_file)
 
         # Convert all AIFF files to MP3
         for file in voice_files + beep_files + [halfway_file]:
@@ -83,8 +99,8 @@ def main():
             # Loop music if shorter than total duration
             while len(base_audio) < total_duration * 1000:
                 base_audio += base_audio
-            # Reduce music volume to 75%
-            base_audio = base_audio - 4.5  # Approximately 75% volume (-2.5 dB)
+            # Reduce music volume to ?%
+            base_audio = base_audio - 4.5  # Approximately ?% volume (-4.5 dB)
 
         # Overlay voice prompts and beeps
         current_position = 0
